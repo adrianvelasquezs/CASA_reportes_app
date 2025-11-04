@@ -1,0 +1,13 @@
+=== Instrucciones de uso de la aplicación ReportesCASA ===
+
+1) En la carpeta data/raw/ poner:
+   - BasedeTrabajo.xlsx  =>  base.xlsx
+   - Listado de admitidos ...  => admitidos.xlsx
+
+2) Ejecutar aplicación:
+   - En Windows: doble clic en "ReportesCASA.exe" y esperar a que se abra la ventana principal
+   - En Mac/Linux: doble clic en "ReportesCASA.app" y esperar a que se abra la ventana principal
+
+3) En la ventana principal:
+   - Seguir las instrucciones en pantalla
+   - Descargar los reportes y/o base de datos procesada en la carpeta data

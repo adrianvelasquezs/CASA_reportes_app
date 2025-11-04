@@ -1,0 +1,5 @@
+En esta carpeta poner:
+
+1) BasedeTrabajo.xlsx  =>  base.xlsx
+
+2) Listado de admitidos ...  => admitidos.xlsx
