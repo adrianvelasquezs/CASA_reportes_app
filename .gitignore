@@ -1,0 +1,12 @@
+.idea
+.venv
+.vscode/
+*.xlsx
+*.csv
+*.pdf
+*.png
+*.jpg
+*.jpeg
+/src/build
+/src/dist
+*.spec
