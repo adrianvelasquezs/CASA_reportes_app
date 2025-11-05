@@ -74,7 +74,7 @@ def generate_tables_graphs() -> bool:
             pdf = pd.DataFrame(consolidated_df[consolidated_df['programa'] == program])
 
             # TODO: Check valid students in the program using the loaded map
-            # pdf = check_students(pdf, student_map_df)
+            pdf = check_students(pdf, student_map_df)
 
             # If all students were filtered out, skip this program
             if pdf.empty:
@@ -157,23 +157,32 @@ def check_students(pdf: pd.DataFrame, student_map: pd.DataFrame) -> pd.DataFrame
 
         # Ensure the DataFrame's student code is also a string for comparison
         pdf_clean = pdf.copy()
+        # Ensure student code is string
         pdf_clean['código del estudiante'] = pdf_clean['código del estudiante'].astype(str)
 
-        # Filter the DataFrame to only include students in the valid list
+        # Sets for membership checks
+        mapped_codes = set(student_map_clean['código del estudiante'].astype(str))
+        valid_codes = set(valid_students.astype(str))
+
         original_count = len(pdf_clean)
-        valid_pdf = pdf_clean[
-            pdf_clean['código del estudiante'].isin(valid_students)
-        ]
+
+        # Keep rows where student is either officially valid for this program,
+        # or the student's code is not present in the student map at all.
+        mask = pdf_clean['código del estudiante'].isin(valid_codes) | (~pdf_clean['código del estudiante'].isin(mapped_codes))
+        valid_pdf = pdf_clean[mask].copy()
         final_count = len(valid_pdf)
 
-        if original_count != final_count:
+        # Logging details
+        kept_by_map = pdf_clean['código del estudiante'].isin(valid_codes).sum()
+        kept_unmapped = (~pdf_clean['código del estudiante'].isin(mapped_codes)).sum()
+
+        log.info(f"Program '{target_program}': {final_count} records kept "
+             f"({kept_by_map} mapped to program, {kept_unmapped} not found in student map).")
+
+        if final_count < original_count:
             dropped_count = original_count - final_count
-            log.warning(f"Program '{target_program}': "
-                        f"Removed {dropped_count} records for students "
-                        f"not found in the program map.")
-        else:
-            log.info(f"Program '{target_program}': "
-                     f"All {original_count} records validated against program map.")
+            log.warning(f"Program '{target_program}': Removed {dropped_count} records for students "
+                f"mapped to a different program.")
 
         return valid_pdf
 
