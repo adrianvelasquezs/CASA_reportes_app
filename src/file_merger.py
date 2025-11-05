@@ -89,6 +89,24 @@ def create_processed_folder() -> None:
     log.info('Processed folder created.')
 
 
+def to_str_period(x):
+    if pd.isna(x):
+        return None
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        try:
+            return str(int(x))
+        except Exception:
+            return str(x)
+    return str(x)
+
+
+def last_digit_to_zero(s):
+    if s is None:
+        return None
+    s = s.strip()
+    return s[:-1] + '0' if len(s) >= 1 else '0'
+
+
 def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge two DataFrames on the student ID column.
@@ -97,22 +115,6 @@ def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.Da
     :return: Merged DataFrame.
     """
     adm = admitidos_df[['CODIGO', 'PERIODO']].copy()
-
-    def to_str_period(x):
-        if pd.isna(x):
-            return None
-        if isinstance(x, (int, float)) and not isinstance(x, bool):
-            try:
-                return str(int(x))
-            except Exception:
-                return str(x)
-        return str(x)
-
-    def last_digit_to_zero(s):
-        if s is None:
-            return None
-        s = s.strip()
-        return s[:-1] + '0' if len(s) >= 1 else '0'
 
     adm['PERIODO'] = adm['PERIODO'].apply(to_str_period).apply(last_digit_to_zero).astype("int64")
 
@@ -141,6 +143,8 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df['cohorte real'].notnull() & df['puntaje criterio'].notnull()]
 
     # Remove codes from objetivo de aprendizaje and código y nombre del criterio
+    df['periodo'] = df['semestre o ciclo'].apply(to_str_period).apply(last_digit_to_zero).astype("int64")
+    df = df.drop(columns=['semestre o ciclo'])
     df['objetivo de aprendizaje'] = remove_codes(df['objetivo de aprendizaje'])
     df['código y nombre del criterio'] = remove_codes(df['código y nombre del criterio'])
 
