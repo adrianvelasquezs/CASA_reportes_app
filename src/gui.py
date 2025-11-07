@@ -1,8 +1,12 @@
-# Nombre de archivo: gui.py
-# Guardar en la carpeta: src/
+# gui.py
 #
 # @author: Adrian Esteban Velasquez Solano (Modificado por Gemini)
 # @date: 10-2025
+#
+# In collaboration with CASA - Centro de Aseguramiento del Aprendizaje
+# Universidad de los Andes
+# Facultad de Administración
+# Bogotá D.C., Colombia
 #
 # Descripción: Esta es una interfaz gráfica (GUI) para gestionar el
 # generador de reportes de CASA. Permite ejecutar la consolidación

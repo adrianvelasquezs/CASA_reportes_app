@@ -1,5 +1,12 @@
-# Nombre de archivo: path_config.py
-# Guardar en la carpeta: src/
+# path_config.py
+#
+# @author: Adrian Esteban Velasquez Solano
+# @date: 10-2025
+#
+# In collaboration with CASA - Centro de Aseguramiento del Aprendizaje
+# Universidad de los Andes
+# Facultad de Administración
+# Bogotá D.C., Colombia
 #
 # Descripción: Centraliza la lógica para encontrar la raíz del proyecto
 # y definir las rutas a las carpetas de datos, tanto en modo de
@@ -52,7 +59,8 @@ PROJECT_ROOT = get_project_root()
 DATA_FOLDER = os.path.join(PROJECT_ROOT, 'data')
 RAW_FOLDER = os.path.join(DATA_FOLDER, 'raw')
 PROCESSED_DIR = os.path.join(DATA_FOLDER, 'procesada')
-REPORTS_FOLDER = os.path.join(DATA_FOLDER, 'reportes', 'programa')
+PROGRAM_REPORT_FOLDER = os.path.join(DATA_FOLDER, 'reportes', 'programa')
+CLASS_REPORT_FOLDER = os.path.join(DATA_FOLDER, 'reportes', 'clase')
 
 # Archivos específicos
 BASE_FILE = os.path.join(RAW_FOLDER, 'base.xlsx')

@@ -205,9 +205,9 @@ def check_competencia_validity(df: pd.DataFrame) -> None:
 
 def create_student_program_map(admitidos_df: pd.DataFrame) -> None:
     """
-    Creates and saves a simple map of student codes to their admitted program.
-    It also standardizes the program names based on the provided mapping.
-    :param admitidos_df: The DataFrame loaded from 'admitidos.xlsx'.
+    Creates and saves a map of student codes to their admitted program(s).
+    If a student has multiple programs, they will be joined by a semicolon.
+    :param admitidos_df: The DataFrame loaded from `admitidos.xlsx`.
     :return: None
     """
     try:
@@ -229,42 +229,50 @@ def create_student_program_map(admitidos_df: pd.DataFrame) -> None:
             'M-GEST': 'MGEST'
         }
 
-        # Select, rename, and clean columns
+        # Select and rename columns
         student_map_df = admitidos_df[['CODIGO', 'PROGRAMA']].copy()
-        student_map_df.columns = ['código del estudiante', 'programa']
+        student_map_df.columns = ['código del estudiante', 'programa_original']
 
-        # Apply the mapping
-        original_programs = set(student_map_df['programa'].unique())
-        student_map_df['programa'] = student_map_df['programa'].map(program_mapping)
-
-        # Log any programs that were not in the mapping
-        unmapped_programs = {
-            p for p in original_programs
-            if p not in program_mapping and pd.notna(p)
-        }
-        if unmapped_programs:
-            log.warning(f"Unmapped programs found in '{paths.ADMITIDOS_FILE}': "
-                        f"{unmapped_programs}. These will be 'NaN' in the map.")
-
-        # Ensure student codes are strings to match 'base.xlsx'
+        # Ensure student codes are strings to match `base.xlsx`
         student_map_df['código del estudiante'] = student_map_df['código del estudiante'].astype(str)
 
-        # Remove any duplicates to create a clean 1-to-1 map (student-to-program)
-        student_map_df = student_map_df.drop_duplicates(subset=['código del estudiante'])
+        # Map programs (may produce NaN for unmapped programs)
+        student_map_df['programa_mapped'] = student_map_df['programa_original'].map(program_mapping)
 
-        # Drop any rows where the program could not be mapped (became NaN)
-        student_map_df = student_map_df.dropna(subset=['programa'])
+        # Log any programs that were not in the mapping
+        original_programs = set(student_map_df['programa_original'].dropna().unique())
+        unmapped_programs = {p for p in original_programs if p not in program_mapping}
+        if unmapped_programs:
+            log.warning(f"Unmapped programs found in `{paths.ADMITIDOS_FILE}`: {unmapped_programs}. "
+                        f"These will be used as fallback when no mapped program exists.")
+
+        # Aggregate programs per student:
+        # - Prefer mapped program names when available
+        # - If a student has multiple mapped programs, join unique values with ';'
+        # - If no mapped programs exist for a student, fall back to original program codes (joined)
+        def aggregate_programs(subdf: pd.DataFrame) -> str:
+            mapped = sorted({p for p in subdf['programa_mapped'].dropna().unique()})
+            if mapped:
+                return ';'.join(mapped)
+            original = sorted({p for p in subdf['programa_original'].dropna().unique()})
+            return ';'.join(original) if original else None
+
+        student_map_agg = student_map_df.groupby('código del estudiante', as_index=False).apply(
+            lambda g: pd.Series({'programa': aggregate_programs(g)})
+        )
+
+        # Remove rows without any program
+        student_map_agg = student_map_agg.dropna(subset=['programa'])
 
         # Define the output path
         output_path = paths.STUDENT_MAP_FILE
 
         # Save the map to the processed folder
-        student_map_df.to_csv(output_path, index=False)
+        student_map_agg.to_csv(output_path, index=False)
         log.info(f'Student-program map saved to {output_path}')
 
     except Exception as e:
         log.error(f'Error creating student-program map: {e}')
-
 
 # ================================================ ENTRY POINT ========================================================
 

@@ -1,5 +1,13 @@
 # build.py
 #
+# @author: Adrian Esteban Velasquez Solano
+# @date: 10-2025
+#
+# In collaboration with CASA - Centro de Aseguramiento del Aprendizaje
+# Universidad de los Andes
+# Facultad de Administración
+# Bogotá D.C., Colombia
+#
 # Este script automatiza la compilación de la aplicación ReportesCASA
 # usando PyInstaller.
 # 1. Limpia compilaciones antiguas.
@@ -7,8 +15,7 @@
 # 3. Limpia los archivos temporales de compilación.
 #
 # Para ejecutar:
-# 1. Asegúrate de tener PyInstaller: pip install pyinstaller
-# 2. Ejecuta este script desde la raíz: python build.py
+# 1. Ejecuta este script desde la raíz: python build.py
 
 import os
 import platform

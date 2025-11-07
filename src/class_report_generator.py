@@ -1,4 +1,4 @@
-# program_report_generator.py
+# class_report_generator.py
 #
 # @author: Adrian Esteban Velasquez Solano
 # @date: 10-2025
@@ -63,7 +63,7 @@ def generate_tables_graphs() -> bool:
             return False  # Stop execution if map is missing
 
         # Get unique programs
-        programs = get_programs(consolidated_df)
+        programs = get_classes(consolidated_df)
 
         # Generate tables and graphs for each program
         for program in programs:
@@ -71,9 +71,6 @@ def generate_tables_graphs() -> bool:
             program_folder = create_report_folder(program)
             # Filter data for the program (convert to DataFrame for consistency)
             pdf = pd.DataFrame(consolidated_df[consolidated_df['programa'] == program])
-
-            # Validate students against the student-program map
-            pdf = check_students(pdf, student_map_df, program)
 
             # If all students were filtered out, skip this program
             if pdf.empty:
@@ -105,7 +102,7 @@ def load_file() -> pd.DataFrame:
     return pd.read_excel(paths.CONSOLIDATED_FILE)
 
 
-def get_programs(df: pd.DataFrame) -> list:
+def get_classes(df: pd.DataFrame) -> list:
     """
     Get the unique programs from the DataFrame.
     :param df: DataFrame containing the consolidated data.
@@ -122,7 +119,7 @@ def create_report_folder(program: str) -> str:
     :param program: The program name.
     :return: The path to the program's report folder.
     """
-    folder = os.path.join(paths.PROGRAM_REPORT_FOLDER, program)
+    folder = os.path.join(paths.CLASS_REPORT_FOLDER, program)
     if not os.path.exists(folder):
         log.info(f'Creating report folder: {folder}')
         os.makedirs(folder, exist_ok=True)
