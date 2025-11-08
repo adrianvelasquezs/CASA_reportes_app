@@ -296,14 +296,17 @@ def table_2(df: pd.DataFrame, folder_path: str, program: str):
         per_col = next((c for c in cols if c.strip().lower().startswith(
             'semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith('periodo')), None)
         obj_col = next((c for c in cols if 'objetivo de aprendizaje' in c.lower()), None)
-        course_col = next((c for c in cols if 'nombre del curso' in c.lower() or 'nombre curso' in c.lower() or 'curso' in c.lower()), None)
+        course_col = next(
+            (c for c in cols if 'nombre del curso' in c.lower() or 'nombre curso' in c.lower() or 'curso' in c.lower()),
+            None)
 
         # Require period, objective and course name to perform the unique-course count
         if per_col is None or obj_col is None or course_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_2.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
-            log.warning(f'Table 2 fallback written (required column not found) for program: {program} | per_col={per_col} obj_col={obj_col} course_col={course_col}')
+            log.warning(
+                f'Table 2 fallback written (required column not found) for program: {program} | per_col={per_col} obj_col={obj_col} course_col={course_col}')
             return
 
         # Count distinct course names per (period, objective)
@@ -445,7 +448,7 @@ def table_4(df: pd.DataFrame, folder_path: str, program: str):
 
 def table_5(df: pd.DataFrame, folder_path: str, program: str):
     """
-    Tabla 5: Promedio por Criterio dentro de Objetivo y Periodo.
+    Tabla 5: Promedio (μ) y Desv. (σ) por Criterio dentro de Objetivo y Periodo.
     Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
@@ -475,12 +478,31 @@ def table_5(df: pd.DataFrame, folder_path: str, program: str):
                        .mean()
                        .reset_index())
 
-        # 2. Calcular promedio de los promedios de estudiantes
-        pv = (student_avg.groupby([obj_col, crit_col, per_col])[score_col]
-              .mean().round(2).unstack(fill_value=np.nan))
+        # 2. Calcular μ y σ de los promedios de estudiantes
+        grouped = student_avg.groupby([obj_col, crit_col, per_col])[score_col]
+        mean_pv = grouped.mean().unstack(fill_value=np.nan)
+        std_pv = grouped.std().unstack(fill_value=np.nan)
+
+        # 3. Intercalar columnas μ y σ
+        cols_order = []
+        # Asegurar que el orden de periodos sea cronológico
+        sorted_periods = sorted(mean_pv.columns)
+        for period in sorted_periods:
+            cols_order.extend([(period, 'μ'), (period, 'σ')])
+
+        out_cols = pd.MultiIndex.from_tuples(cols_order)
+        out_df = pd.DataFrame(index=mean_pv.index, columns=out_cols, dtype=float)
+
+        for period in sorted_periods:
+            if period in mean_pv.columns:
+                out_df[(period, 'μ')] = mean_pv[period]
+            if period in std_pv.columns:
+                out_df[(period, 'σ')] = std_pv[period]
+
+        out_df = out_df.round(2)
 
         out_path = os.path.join(folder_path, f'{program}_tabla_5.xlsx')
-        styled = pv.style.format(precision=2).background_gradient(cmap='RdYlGn', axis=None)
+        styled = out_df.style.format(precision=2, na_rep='-').background_gradient(cmap='RdYlGn', axis=None)
         styled.to_excel(out_path, sheet_name='Tabla 5')
         log.info(f'Table 5 (student-avg) generated for program: {program}')
     except Exception as e:
@@ -490,7 +512,8 @@ def table_5(df: pd.DataFrame, folder_path: str, program: str):
 def table_6(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 6: Promedio por PERIODO (diagnóstico escritura).
-    Calcula el promedio de los promedios por estudiante.
+    Calcula el promedio de los promedios por estudiante,
+    FILTRADO SOLO PARA "ESCRITURA".
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -513,6 +536,11 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
         student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
 
+        # Columnas de texto para filtrar por "escritura"
+        obj_col = next((c for c in cols if 'objetivo de aprendizaje' in c.lower()), None)
+        crit_col = next((c for c in cols if 'nombre del criterio' in c.lower()), None)
+        comp_col = next((c for c in cols if 'competencia' in c.lower()), None)
+
         if per_col is None or (prom_col is None and score_col is None) or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_6.xlsx')
             with pd.ExcelWriter(out_path) as xw:
@@ -523,24 +551,35 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         # Si no hay PROMEDIO, calculamos desde Puntaje criterio
         value_col = prom_col if prom_col is not None else score_col
 
-        # (Opcional) si quieres que sea solo de escritura, descomenta y ajusta palabras clave:
-        # mask = df.columns.str.contains('objetivo|criterio|competencia', case=False).any()
-        # if mask:
-        #     candidate_cols = [c for c in ['objetivo de aprendizaje', 'código y nombre del criterio', 'competencia'] if
-        #                       c in df.columns]
-        #     if candidate_cols:
-        #         filtro = df[candidate_cols].astype(str).apply(lambda row: row.str.lower().str.contains('escri').any(),
-        #                                                       axis=1)
-        #         tmp = df.loc[filtro, [per_col, value_col]].dropna()
-        #     else:
-        #         tmp = df[[per_col, value_col]].dropna()
-        # else:
-        #     tmp = df[[per_col, value_col]].dropna()
+        # --- INICIO DE FILTRO DE ESCRITURA ---
+        text_cols_to_check = [c for c in [obj_col, crit_col, comp_col] if c is not None]
 
-        # 1. Calcular promedio por estudiante
-        # Nota: Si value_col es 'PROMEDIO', esto asume que es un promedio *por entrada* y no *por estudiante*
-        # Si 'PROMEDIO' ya es por estudiante, .mean() no haría daño si solo hay 1 entrada/estudiante
-        student_avg = (df.groupby([per_col, student_col])[value_col]
+        if not text_cols_to_check:
+            log.warning(f"Table 6: No text columns (objetivo, criterio, competencia) found to filter for 'escritura'.")
+            # Procede sin filtrar, o podría devolver un fallback
+            filtered_df = df
+        else:
+            # Crear una máscara de 'True' si *alguna* de las columnas de texto contiene "escri"
+            filtro_escritura = pd.Series(False, index=df.index)
+            for col in text_cols_to_check:
+                # .str.contains() maneja NaNs (los trata como False)
+                filtro_escritura = filtro_escritura | df[col].astype(str).str.contains('escri', case=False)
+
+            filtered_df = df.loc[filtro_escritura].copy()
+
+            if filtered_df.empty:
+                log.warning(f"Table 6: No rows found containing 'escri' for program: {program}.")
+                out_path = os.path.join(folder_path, f'{program}_tabla_6.xlsx')
+                # Escribir una tabla vacía pero con formato
+                tabla_vacia = pd.DataFrame(columns=['Periodo', 'Promedio'])
+                with pd.ExcelWriter(out_path) as xw:
+                    tabla_vacia.to_excel(xw, index=False, sheet_name='Tabla 6')
+                log.info(f'Table 6 (escritura) generated (empty) for program: {program}')
+                return
+        # --- FIN DE FILTRO DE ESCRITURA ---
+
+        # 1. Calcular promedio por estudiante (usando filtered_df)
+        student_avg = (filtered_df.groupby([per_col, student_col])[value_col]
                        .mean()
                        .reset_index())
 
@@ -551,7 +590,7 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         out_path = os.path.join(folder_path, f'{program}_tabla_6.xlsx')
         with pd.ExcelWriter(out_path) as xw:
             tabla.to_excel(xw, index=False, sheet_name='Tabla 6')
-        log.info(f'Table 6 (student-avg) generated for program: {program}')
+        log.info(f'Table 6 (student-avg, escritura) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 6: {e}')
 
@@ -593,7 +632,7 @@ def table_7(df: pd.DataFrame, folder_path: str, program: str):
               .round(2))
 
         out_path = os.path.join(folder_path, f'{program}_tabla_7.xlsx')
-        styled = pv.style.format(precision=2).background_gradient(cmap='RdYlGn', axis=None)
+        styled = pv.style.format(precision=2, na_rep='-').background_gradient(cmap='RdYlGn', axis=None)
         styled.to_excel(out_path, sheet_name='Tabla 7')
         log.info(f'Table 7 (student-avg) generated for program: {program}')
     except Exception as e:
@@ -602,8 +641,8 @@ def table_7(df: pd.DataFrame, folder_path: str, program: str):
 
 def table_8(df: pd.DataFrame, folder_path: str, program: str):
     """
-    Tabla 8: Resultados (Promedio) por Competencia, por Cohortes (PERIODO) con columna 'Promedio'.
-    Calcula el promedio de los promedios por estudiante.
+    Tabla 8: Resultados (Promedio μ y Desv. σ) por Competencia, por Cohortes (PERIODO).
+    Calcula el promedio y desv. de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -628,19 +667,38 @@ def table_8(df: pd.DataFrame, folder_path: str, program: str):
                        .mean()
                        .reset_index())
 
-        # 2. Calcular promedio de los promedios de estudiantes
-        pv = (student_avg.groupby([coh_col, comp_col])[score_col]
-              .mean().unstack())
+        # 2. Calcular μ y σ de los promedios de estudiantes
+        grouped = student_avg.groupby([coh_col, comp_col])[score_col]
+        mean_pv = grouped.mean().unstack()
+        std_pv = grouped.std().unstack()
 
-        pv['Promedio'] = pv.mean(axis=1)
-        pv = pv.round(2)
-        # Agregar fila de promedio general
-        mean_row = pv.mean(axis=0).to_frame().T
+        # 3. Intercalar columnas μ y σ
+        cols_order = []
+        # Usar las columnas de mean_pv como el orden de competencias
+        competencias = mean_pv.columns
+        for comp in competencias:
+            cols_order.extend([(comp, 'μ'), (comp, 'σ')])
+
+        out_cols = pd.MultiIndex.from_tuples(cols_order)
+        out_df = pd.DataFrame(index=mean_pv.index, columns=out_cols, dtype=float)
+
+        for comp in competencias:
+            out_df[(comp, 'μ')] = mean_pv[comp]
+            out_df[(comp, 'σ')] = std_pv[comp]
+
+        out_df = out_df.sort_index().round(2)
+
+        # 4. Agregar fila de promedio general
+        mean_row = out_df.mean(axis=0).to_frame().T
         mean_row.index = ['Promedio']
-        out_df = pd.concat([pv, mean_row])
-        out_df.index = [f'Cohorte {idx}' if idx != 'Promedio' else idx for idx in out_df.index]
+        mean_row = mean_row.round(2)
+
+        final_df = pd.concat([out_df, mean_row])
+        # Renombrar índice de cohortes
+        final_df.index = [f'Cohorte {idx}' if idx != 'Promedio' else idx for idx in final_df.index]
+
         out_path = os.path.join(folder_path, f'{program}_tabla_8.xlsx')
-        out_df.to_excel(out_path)
+        final_df.to_excel(out_path)
         log.info(f'Table 8 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 8: {e}')
