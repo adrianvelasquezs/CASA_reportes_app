@@ -107,25 +107,68 @@ def last_digit_to_zero(s):
     return s[:-1] + '0' if len(s) >= 1 else '0'
 
 
+def date_to_periodo(date_series: pd.Series) -> pd.Series:
+    """
+    Converts a Series of dates into the YYYYPP format.
+    - Months 1-7 (Jan-Jul) -> 10
+    - Months 8-12 (Aug-Dec) -> 20
+    """
+    try:
+        # Convert to datetime, handling errors by setting to NaT
+        dates = pd.to_datetime(date_series, errors='coerce')
+
+        # Initialize period series
+        periodo = pd.Series(index=dates.index, dtype='Int64')
+
+        # Months 1-7 (Jan-Jul)
+        mask_10 = (dates.dt.month >= 1) & (dates.dt.month <= 7)
+        periodo[mask_10] = (dates[mask_10].dt.year * 100 + 10).astype('Int64')
+
+        # Months 8-12 (Aug-Dec)
+        mask_20 = (dates.dt.month >= 8) & (dates.dt.month <= 12)
+        periodo[mask_20] = (dates[mask_20].dt.year * 100 + 20).astype('Int64')
+
+        # Log NaNs
+        if dates.isna().any() and not date_series.isna().all():
+            log.warning("Some 'Fecha inicio de clases' dates were invalid and could not be converted to Periodo.")
+
+        return periodo
+
+    except Exception as e:
+        log.error(f"Error in date_to_periodo conversion: {e}")
+        return pd.Series(index=date_series.index, dtype='Int64')
+
+
 def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge two DataFrames on the student ID column.
+    Merge two DataFrames on the student ID column using 'Fecha inicio de clases'.
     :param base_df: Base DataFrame.
     :param admitidos_df: Admitidos DataFrame.
     :return: Merged DataFrame.
     """
+    # Use 'CODIGO' and 'Fecha inicio de clases'
     adm = admitidos_df[['CODIGO', 'PERIODO']].copy()
 
-    adm['PERIODO'] = adm['PERIODO'].apply(to_str_period).apply(last_digit_to_zero).astype("int64")
+    # Convert 'Fecha inicio de clases' to the 'Cohorte Real' (YYYYPP format)
+    adm['Cohorte Real'] = adm['PERIODO']
+
+    # Drop the original date column as we now have the period
+    adm = adm.drop(columns=['PERIODO'])
+
+    # Ensure we only merge non-null cohorts and codes
+    adm = adm.dropna(subset=['CODIGO', 'Cohorte Real'])
+
+    # Convert Cohorte Real to int64 for the merge
+    adm['Cohorte Real'] = adm['Cohorte Real'].astype('int64')
 
     df = base_df.merge(
         adm,
         left_on='Código del estudiante',
         right_on='CODIGO',
         how='left'
-    ).rename(columns={'PERIODO': 'Cohorte Real'}).drop(columns=['CODIGO'])
+    ).drop(columns=['CODIGO'])  # 'Cohorte Real' column is now included from the merge
 
-    log.info('Merging completed successfully.')
+    log.info('Merging completed successfully using "Fecha inicio de clases".')
     return df
 
 
@@ -176,8 +219,8 @@ def remove_codes(sr: pd.Series) -> pd.Series:
         )
     elif sr.name == 'código y nombre del criterio':
         sr = sr.str.split('|')
-        if len(sr) > 0:
-            sr = sr.apply(lambda x: ' '.join(x[1:]) if isinstance(x, list) else x)
+        if len(sr) > 1:
+            sr = sr.apply(lambda x: ' '.join(x[1:]) if isinstance(x, list) and len(x)>1 else x[0])
     log.info(f'Codes removed from column: {sr.name}')
     return sr
 
@@ -273,6 +316,7 @@ def create_student_program_map(admitidos_df: pd.DataFrame) -> None:
 
     except Exception as e:
         log.error(f'Error creating student-program map: {e}')
+
 
 # ================================================ ENTRY POINT ========================================================
 

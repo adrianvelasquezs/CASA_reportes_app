@@ -211,7 +211,8 @@ def check_students(pdf: pd.DataFrame, student_map: pd.DataFrame, target_program:
                  f"({kept_by_map} mapped to program, {kept_unmapped} not found in student map and treated as valid).")
 
         if dropped_count > 0:
-            log.warning(f"Program '{target_program}': Removed {dropped_count} records for students mapped to a different program.")
+            log.warning(
+                f"Program '{target_program}': Removed {dropped_count} records for students mapped to a different program.")
 
         return valid_pdf
 
@@ -283,7 +284,8 @@ def table_1(df: pd.DataFrame, folder_path: str, program: str):
 
 def table_2(df: pd.DataFrame, folder_path: str, program: str):
     """
-    Tabla 2: Cantidad de mediciones por Objetivo de aprendizaje y Periodo.
+    Tabla 2: Cantidad de cursos únicos por Objetivo de aprendizaje y Periodo.
+    Counts unique `nombre del curso` per `objetivo de aprendizaje` (by period).
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -294,24 +296,35 @@ def table_2(df: pd.DataFrame, folder_path: str, program: str):
         per_col = next((c for c in cols if c.strip().lower().startswith(
             'semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith('periodo')), None)
         obj_col = next((c for c in cols if 'objetivo de aprendizaje' in c.lower()), None)
-        if per_col is None or obj_col is None:
+        course_col = next((c for c in cols if 'nombre del curso' in c.lower() or 'nombre curso' in c.lower() or 'curso' in c.lower()), None)
+
+        # Require period, objective and course name to perform the unique-course count
+        if per_col is None or obj_col is None or course_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_2.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
-            log.warning(f'Table 2 fallback written (column not found) for program: {program}')
+            log.warning(f'Table 2 fallback written (required column not found) for program: {program} | per_col={per_col} obj_col={obj_col} course_col={course_col}')
             return
-        pv = (df.groupby([per_col, obj_col]).size().unstack(fill_value=0).sort_index())
-        pv['# Total'] = pv.sum(axis=1)
+
+        # Count distinct course names per (period, objective)
+        pv = (df.groupby([per_col, obj_col])[course_col]
+              .nunique()
+              .unstack(fill_value=0)
+              .sort_index())
+
+        pv['# Total Cursos'] = pv.sum(axis=1)
         total_row = pv.sum(axis=0).to_frame().T
         total_row.index = ['Total']
         out_df = pd.concat([pv, total_row], axis=0)
+
         formatted = out_df.astype(object)
         for c in formatted.columns:
             formatted[c] = formatted[c].apply(lambda x: '—' if (pd.notnull(x) and x == 0) else x)
+
         out_path = os.path.join(folder_path, f'{program}_tabla_2.xlsx')
         with pd.ExcelWriter(out_path) as xw:
             formatted.to_excel(xw, sheet_name='Tabla 2')
-        log.info(f'Table 2 generated for program: {program}')
+        log.info(f'Table 2 (unique courses per objective) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 2: {e}')
 
@@ -391,6 +404,7 @@ def table_3(df: pd.DataFrame, folder_path: str, program: str):
 def table_4(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 4: Promedio por Competencia y Periodo.
+    Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -402,19 +416,29 @@ def table_4(df: pd.DataFrame, folder_path: str, program: str):
             'semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith('periodo')), None)
         comp_col = next((c for c in cols if 'competencia' in c.lower()), None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
-        if per_col is None or comp_col is None or score_col is None:
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
+
+        if per_col is None or comp_col is None or score_col is None or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_4.xlsx')
             with pd.ExcelWriter(out_path, engine='xlsxwriter') as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
             log.warning(f'Table 4 fallback written (column not found) for program: {program}')
             return
-        pv = (df.groupby([per_col, comp_col])[score_col]
+
+        # 1. Calcular promedio por estudiante dentro del grupo
+        student_avg = (df.groupby([per_col, comp_col, student_col])[score_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular promedio de los promedios de estudiantes
+        pv = (student_avg.groupby([per_col, comp_col])[score_col]
               .mean().unstack())
+
         # Redondeo 2 decimales
         pv = pv.round(2)
         out_path = os.path.join(folder_path, f'{program}_tabla_4.xlsx')
         pv.to_excel(out_path)
-        log.info(f'Table 4 generated for program: {program}')
+        log.info(f'Table 4 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 4: {e}')
 
@@ -422,6 +446,7 @@ def table_4(df: pd.DataFrame, folder_path: str, program: str):
 def table_5(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 5: Promedio por Criterio dentro de Objetivo y Periodo.
+    Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -436,19 +461,28 @@ def table_5(df: pd.DataFrame, folder_path: str, program: str):
             (c for c in cols if 'código y nombre del criterio' in c.lower() or 'nombre del criterio' in c.lower()),
             None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
-        if per_col is None or obj_col is None or crit_col is None or score_col is None:
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
+
+        if per_col is None or obj_col is None or crit_col is None or score_col is None or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_5.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
             log.warning(f'Table 5 fallback written (column not found) for program: {program}')
             return
-        tmp = df[[per_col, obj_col, crit_col, score_col]].dropna()
-        pv = (tmp.groupby([obj_col, crit_col, per_col])[score_col]
+
+        # 1. Calcular promedio por estudiante
+        student_avg = (df.groupby([obj_col, crit_col, per_col, student_col])[score_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular promedio de los promedios de estudiantes
+        pv = (student_avg.groupby([obj_col, crit_col, per_col])[score_col]
               .mean().round(2).unstack(fill_value=np.nan))
+
         out_path = os.path.join(folder_path, f'{program}_tabla_5.xlsx')
         styled = pv.style.format(precision=2).background_gradient(cmap='RdYlGn', axis=None)
         styled.to_excel(out_path, sheet_name='Tabla 5')
-        log.info(f'Table 5 generated for program: {program}')
+        log.info(f'Table 5 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 5: {e}')
 
@@ -456,6 +490,7 @@ def table_5(df: pd.DataFrame, folder_path: str, program: str):
 def table_6(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 6: Promedio por PERIODO (diagnóstico escritura).
+    Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -476,12 +511,13 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         # detectar PROMEDIO o usar Puntaje criterio
         prom_col = next((c for c in cols if c.strip().upper() == 'PROMEDIO' or 'promedio escritura' in c.lower()), None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
 
-        if per_col is None or (prom_col is None and score_col is None):
+        if per_col is None or (prom_col is None and score_col is None) or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_6.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Fallback')
-            log.warning(f'Table 6 fallback written (no period/score columns) for program: {program}')
+            log.warning(f'Table 6 fallback written (no period/score/student columns) for program: {program}')
             return
 
         # Si no hay PROMEDIO, calculamos desde Puntaje criterio
@@ -495,14 +531,21 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         # else:
         #     tmp = df[[per_col, value_col]].dropna()
 
-        tmp = df[[per_col, value_col]].dropna()
-        tabla = tmp.groupby(per_col)[value_col].mean().round(2).reset_index()
+        # 1. Calcular promedio por estudiante
+        # Nota: Si value_col es 'PROMEDIO', esto asume que es un promedio *por entrada* y no *por estudiante*
+        # Si 'PROMEDIO' ya es por estudiante, .mean() no haría daño si solo hay 1 entrada/estudiante
+        student_avg = (df.groupby([per_col, student_col])[value_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular promedio de los promedios de estudiantes
+        tabla = student_avg.groupby(per_col)[value_col].mean().round(2).reset_index()
         tabla.columns = ['Periodo', 'Promedio']
 
         out_path = os.path.join(folder_path, f'{program}_tabla_6.xlsx')
         with pd.ExcelWriter(out_path) as xw:
             tabla.to_excel(xw, index=False, sheet_name='Tabla 6')
-        log.info(f'Table 6 generated for program: {program}')
+        log.info(f'Table 6 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 6: {e}')
 
@@ -510,6 +553,7 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
 def table_7(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 7: Promedio por Criterios de Evaluación por Periodos Académicos (heatmap con Styler).
+    Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -524,18 +568,28 @@ def table_7(df: pd.DataFrame, folder_path: str, program: str):
             (c for c in cols if 'código y nombre del criterio' in c.lower() or 'nombre del criterio' in c.lower()),
             None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
-        if per_col is None or obj_col is None or crit_col is None or score_col is None:
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
+
+        if per_col is None or obj_col is None or crit_col is None or score_col is None or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_7.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
             log.warning(f'Table 7 fallback written (column not found) for program: {program}')
             return
-        tmp = df[[obj_col, crit_col, per_col, score_col]].dropna()
-        pv = pd.pivot_table(tmp, index=[obj_col, crit_col], columns=per_col, values=score_col, aggfunc='mean').round(2)
+
+        # 1. Calcular promedio por estudiante
+        student_avg = (df.groupby([obj_col, crit_col, per_col, student_col])[score_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular promedio de los promedios de estudiantes
+        pv = (student_avg.pivot_table(index=[obj_col, crit_col], columns=per_col, values=score_col, aggfunc='mean')
+              .round(2))
+
         out_path = os.path.join(folder_path, f'{program}_tabla_7.xlsx')
         styled = pv.style.format(precision=2).background_gradient(cmap='RdYlGn', axis=None)
         styled.to_excel(out_path, sheet_name='Tabla 7')
-        log.info(f'Table 7 generated for program: {program}')
+        log.info(f'Table 7 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 7: {e}')
 
@@ -543,6 +597,7 @@ def table_7(df: pd.DataFrame, folder_path: str, program: str):
 def table_8(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 8: Resultados (Promedio) por Competencia, por Cohortes (PERIODO) con columna 'Promedio'.
+    Calcula el promedio de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -553,13 +608,24 @@ def table_8(df: pd.DataFrame, folder_path: str, program: str):
         coh_col = next((c for c in cols if c.strip().upper() == 'PERIODO' or 'cohorte' in c.lower()), None)
         comp_col = next((c for c in cols if 'competencia' in c.lower()), None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
-        if coh_col is None or comp_col is None or score_col is None:
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
+
+        if coh_col is None or comp_col is None or score_col is None or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_8.xlsx')
             with pd.ExcelWriter(out_path, engine='xlsxwriter') as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
             log.warning(f'Table 8 fallback written (column not found) for program: {program}')
             return
-        pv = (df.groupby([coh_col, comp_col])[score_col].mean().unstack())
+
+        # 1. Calcular promedio por estudiante
+        student_avg = (df.groupby([coh_col, comp_col, student_col])[score_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular promedio de los promedios de estudiantes
+        pv = (student_avg.groupby([coh_col, comp_col])[score_col]
+              .mean().unstack())
+
         pv['Promedio'] = pv.mean(axis=1)
         pv = pv.round(2)
         # Agregar fila de promedio general
@@ -569,7 +635,7 @@ def table_8(df: pd.DataFrame, folder_path: str, program: str):
         out_df.index = [f'Cohorte {idx}' if idx != 'Promedio' else idx for idx in out_df.index]
         out_path = os.path.join(folder_path, f'{program}_tabla_8.xlsx')
         out_df.to_excel(out_path)
-        log.info(f'Table 8 generated for program: {program}')
+        log.info(f'Table 8 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 8: {e}')
 
@@ -577,6 +643,7 @@ def table_8(df: pd.DataFrame, folder_path: str, program: str):
 def table_9(df: pd.DataFrame, folder_path: str, program: str):
     """
     Tabla 9: Resultados (Promedio μ y Desv. σ) por Objetivo de aprendizaje, por Cohortes.
+    Calcula el promedio y desv. de los promedios por estudiante.
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the tables.
     :param program: The program name.
@@ -598,17 +665,24 @@ def table_9(df: pd.DataFrame, folder_path: str, program: str):
 
         obj_col = next((c for c in cols if 'objetivo de aprendizaje' in c.lower()), None)
         score_col = next((c for c in cols if 'puntaje criterio' in c.lower()), None)
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
 
-        if coh_col is None or obj_col is None or score_col is None:
+        if coh_col is None or obj_col is None or score_col is None or student_col is None:
             out_path = os.path.join(folder_path, f'{program}_tabla_9.xlsx')
             with pd.ExcelWriter(out_path) as xw:
                 df.head(50).to_excel(xw, index=False, sheet_name='Datos')
             log.warning(f'Table 9 fallback written (column not found) for program: {program}')
             return
 
-        tmp = df[[coh_col, obj_col, score_col]].dropna()
-        mean_pv = tmp.pivot_table(index=coh_col, columns=obj_col, values=score_col, aggfunc='mean')
-        std_pv = tmp.pivot_table(index=coh_col, columns=obj_col, values=score_col, aggfunc='std')
+        # 1. Calcular promedio por estudiante
+        student_avg = (df.groupby([coh_col, obj_col, student_col])[score_col]
+                       .mean()
+                       .reset_index())
+
+        # 2. Calcular μ y σ de los promedios de estudiantes
+        grouped = student_avg.groupby([coh_col, obj_col])[score_col]
+        mean_pv = grouped.mean().unstack()
+        std_pv = grouped.std().unstack()
 
         # Intercalar columnas μ y σ
         cols_order = []
@@ -629,7 +703,7 @@ def table_9(df: pd.DataFrame, folder_path: str, program: str):
         out_path = os.path.join(folder_path, f'{program}_tabla_9.xlsx')
         with pd.ExcelWriter(out_path) as xw:
             final_df.to_excel(xw, sheet_name='Tabla 9')
-        log.info(f'Table 9 generated for program: {program}')
+        log.info(f'Table 9 (student-avg) generated for program: {program}')
     except Exception as e:
         log.error(f'Error in Table 9: {e}')
 
@@ -662,15 +736,16 @@ def graph_1(df: pd.DataFrame, folder_path: str, program: str):
         ax.text(0.5, 0.5, 'No hay columnas de periodo/estudiante', ha='center', va='center')
         ax.axis('off')
     else:
-        tmp = df[[per_col, student_col]].dropna().drop_duplicates()
-        counts = tmp.groupby(per_col)[student_col].nunique().sort_index()
+        # Contar estudiantes únicos por periodo
+        counts = df.groupby(per_col)[student_col].nunique().sort_index()
+
         fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(range(len(counts)), counts.values)
         ax.set_xticks(range(len(counts)))
         ax.set_xticklabels(counts.index.astype(str))
-        ax.set_title('Número de evaluaciones AOL MM')
+        ax.set_title('Número de estudiantes únicos evaluados por periodo')
         ax.set_xlabel('Periodo - semestre')
-        ax.set_ylabel('Número de estudiantes evaluados en AOL MM')
+        ax.set_ylabel('Número de estudiantes únicos evaluados')
         # Etiquetas encima
         for rect, val in zip(bars, counts.values):
             ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() + 0.5, f"{int(val)}", ha='center',
@@ -680,12 +755,12 @@ def graph_1(df: pd.DataFrame, folder_path: str, program: str):
     out_path = os.path.join(folder_path, f'{program}_figura_1.png')
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    log.info(f'Graph 1 generated for program: {program}')
+    log.info(f'Graph 1 (unique students) generated for program: {program}')
 
 
 def graph_2(df: pd.DataFrame, folder_path: str, program: str):
     """
-    Generate Graph 2: Number of evaluations by cohort of entry (PERIODO).
+    Generate Graph 2: Number of unique students evaluated by cohort of entry (PERIODO).
     :param df: DataFrame filtered by program.
     :param folder_path: Path to save the graphs.
     :param program: The program name.
@@ -696,14 +771,15 @@ def graph_2(df: pd.DataFrame, folder_path: str, program: str):
     student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
     fig, ax = plt.subplots(figsize=(10, 6))
     if coh_col and student_col:
-        tmp = df[[coh_col, student_col]].dropna().drop_duplicates()
-        counts = tmp.groupby(coh_col)[student_col].nunique().sort_index()
+        # Contar estudiantes únicos por cohorte
+        counts = df.groupby(coh_col)[student_col].nunique().sort_index()
+
         bars = ax.barh(range(len(counts)), counts.values)
         ax.set_yticks(range(len(counts)))
         ax.set_yticklabels([f'Cohorte {c}' for c in counts.index])
         ax.invert_yaxis()
-        ax.set_xlabel('Número de estudiantes evaluados AOL MM')
-        ax.set_title('Estudiantes evaluados en AOL desagregado por cohorte de ingreso')
+        ax.set_xlabel('Número de estudiantes únicos evaluados')
+        ax.set_title('Estudiantes únicos evaluados desagregado por cohorte de ingreso')
         for rect, val in zip(bars, counts.values):
             ax.text(rect.get_width() + 0.5, rect.get_y() + rect.get_height() / 2, f"{int(val)}", va='center')
         fig.tight_layout()
@@ -713,7 +789,7 @@ def graph_2(df: pd.DataFrame, folder_path: str, program: str):
     out_path = os.path.join(folder_path, f'{program}_figura_2.png')
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
-    log.info(f'Graph 2 generated for program: {program}')
+    log.info(f'Graph 2 (unique students) generated for program: {program}')
 
 
 # ================================================ ENTRY POINT ========================================================
