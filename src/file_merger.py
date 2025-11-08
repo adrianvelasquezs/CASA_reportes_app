@@ -18,6 +18,7 @@
 
 import pandas as pd
 import os
+import shutil
 import logger
 
 try:
@@ -85,8 +86,15 @@ def create_processed_folder() -> None:
     Create the processed folder if it doesn't exist.
     :return: None
     """
+    if os.path.exists(paths.PROCESSED_DIR):
+        try:
+            shutil.rmtree(paths.PROCESSED_DIR)
+            log.info(f'Existing processed folder removed: {paths.PROCESSED_DIR}')
+        except Exception as e:
+            log.error(f'Failed to remove processed folder {paths.PROCESSED_DIR}: {e}')
+            raise
     os.makedirs(paths.PROCESSED_DIR, exist_ok=True)
-    log.info('Processed folder created.')
+    log.info(f'Processed folder created at {paths.PROCESSED_DIR}')
 
 
 def to_str_period(x):
@@ -141,34 +149,35 @@ def date_to_periodo(date_series: pd.Series) -> pd.Series:
 
 def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge two DataFrames on the student ID column using 'Fecha inicio de clases'.
+    Merge two DataFrames on the student ID column using the largest PERIODO per student.
+    If a student has multiple PERIODO values (e.g. 202210 and 202220), the maximum (202220) is kept.
     :param base_df: Base DataFrame.
     :param admitidos_df: Admitidos DataFrame.
     :return: Merged DataFrame.
     """
-    # Use 'CODIGO' and 'Fecha inicio de clases'
+    # Select relevant columns and coerce PERIODO to numeric (invalid -> NaN)
     adm = admitidos_df[['CODIGO', 'PERIODO']].copy()
+    adm['PERIODO'] = pd.to_numeric(adm['PERIODO'], errors='coerce').astype('Int64')
 
-    # Convert 'Fecha inicio de clases' to the 'Cohorte Real' (YYYYPP format)
-    adm['Cohorte Real'] = adm['PERIODO']
+    # Drop rows without CODIGO or PERIODO
+    adm = adm.dropna(subset=['CODIGO', 'PERIODO'])
 
-    # Drop the original date column as we now have the period
-    adm = adm.drop(columns=['PERIODO'])
+    # For each student, keep only the largest PERIODO
+    adm_agg = adm.groupby('CODIGO', as_index=False)['PERIODO'].max()
+    adm_agg = adm_agg.rename(columns={'PERIODO': 'Cohorte Real'})
 
-    # Ensure we only merge non-null cohorts and codes
-    adm = adm.dropna(subset=['CODIGO', 'Cohorte Real'])
+    # Ensure Cohorte Real is int64 for consistency
+    adm_agg['Cohorte Real'] = adm_agg['Cohorte Real'].astype('int64')
 
-    # Convert Cohorte Real to int64 for the merge
-    adm['Cohorte Real'] = adm['Cohorte Real'].astype('int64')
-
+    # Merge with base; left join preserves all base records
     df = base_df.merge(
-        adm,
+        adm_agg,
         left_on='Código del estudiante',
         right_on='CODIGO',
         how='left'
-    ).drop(columns=['CODIGO'])  # 'Cohorte Real' column is now included from the merge
+    ).drop(columns=['CODIGO'])
 
-    log.info('Merging completed successfully using "Fecha inicio de clases".')
+    log.info('Merging completed successfully using the largest PERIODO per student.')
     return df
 
 

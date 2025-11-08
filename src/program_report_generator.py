@@ -526,8 +526,14 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         # (Opcional) si quieres que sea solo de escritura, descomenta y ajusta palabras clave:
         # mask = df.columns.str.contains('objetivo|criterio|competencia', case=False).any()
         # if mask:
-        #     filtro = df.apply(lambda r: any('escrit' in str(v).lower() for v in r[['Objetivo de aprendizaje','Código y nombre del criterio','Competencia'] if x in df.columns]), axis=1)
-        #     tmp = df.loc[filtro, [per_col, value_col]].dropna()
+        #     candidate_cols = [c for c in ['objetivo de aprendizaje', 'código y nombre del criterio', 'competencia'] if
+        #                       c in df.columns]
+        #     if candidate_cols:
+        #         filtro = df[candidate_cols].astype(str).apply(lambda row: row.str.lower().str.contains('escri').any(),
+        #                                                       axis=1)
+        #         tmp = df.loc[filtro, [per_col, value_col]].dropna()
+        #     else:
+        #         tmp = df[[per_col, value_col]].dropna()
         # else:
         #     tmp = df[[per_col, value_col]].dropna()
 
