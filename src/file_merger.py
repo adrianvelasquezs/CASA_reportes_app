@@ -209,6 +209,10 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     # Check validity of competencia column
     check_competencia_validity(df)
 
+    # Remove redundant information from nombre del criterio
+    df['nombre del criterio'] = remove_redundant_criteria(df['nombre del criterio'])
+    log.info('Redundant information removed from "nombre del criterio" column.')
+
     log.info('Data cleaning completed successfully.')
     return df
 
@@ -229,7 +233,7 @@ def remove_codes(sr: pd.Series) -> pd.Series:
     elif sr.name == 'código y nombre del criterio':
         sr = sr.str.split('|')
         if len(sr) > 1:
-            sr = sr.apply(lambda x: ' '.join(x[1:]) if isinstance(x, list) and len(x)>1 else x[0])
+            sr = sr.apply(lambda x: ' '.join(x[1:]) if isinstance(x, list) and len(x) > 1 else x[0])
     log.info(f'Codes removed from column: {sr.name}')
     return sr
 
@@ -253,6 +257,18 @@ def check_competencia_validity(df: pd.DataFrame) -> None:
         log.warning(f"Found unexpected 'competencia' values: {invalid_competencias}")
     else:
         log.info("All 'competencia' values appear valid.")
+
+
+def remove_redundant_criteria(sr: pd.Series) -> pd.Series:
+    """
+    Remove redundant information from the 'nombre del criterio' column.
+    :param sr: Series to process.
+    :return: Series with redundant information removed.
+    """
+    sr = sr.str.split('.').split(',')
+    if len(sr) > 1:
+        sr = sr.apply(lambda x: x[0].strip())
+    return sr
 
 
 def create_student_program_map(admitidos_df: pd.DataFrame) -> None:
