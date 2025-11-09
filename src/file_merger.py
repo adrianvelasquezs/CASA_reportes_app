@@ -12,7 +12,7 @@
 # There are two files: `base.xlsx` and `admitidos.xlsx` located in the `data` folder.
 # The script reads both files, merges them based on the column corresponding to the student ID, and guarantees
 # that all records from `base.xlsx` are included in the final consolidated file, as well as the matching
-# start date records from `admitidos.xlsx`.
+# start date records (Cohorte Real) and program list from `admitidos.xlsx`.
 
 # ================================================ IMPORTS ============================================================
 
@@ -33,7 +33,8 @@ except ImportError:
         'ADMITIDOS_FILE': '../data/raw/admitidos.xlsx',
         'PROCESSED_DIR': '../data/procesada/',
         'CONSOLIDATED_FILE': '../data/procesada/base_consolidada.xlsx',
-        'STUDENT_MAP_FILE': '../data/procesada/student_program_map.csv'
+        # STUDENT_MAP_FILE is no longer needed
+        # 'STUDENT_MAP_FILE': '../data/procesada/student_program_map.csv'
     })()
 
 # ================================================ CONSTANTS ==========================================================
@@ -53,10 +54,13 @@ def generate_consolidated_file() -> bool:
         base_df, admitidos_df = load_files()
         # Create processed folder if it doesn't exist
         create_processed_folder()
-        # Create the student-program map for the report generator
-        create_student_program_map(admitidos_df)
+        # Create the student-program map for the report generator (REMOVED)
+        # create_student_program_map(admitidos_df)
+
         # Merge DataFrames on the student ID column
+        # This function now also adds the program map
         consolidated_df = merge_dataframes(base_df, admitidos_df)
+
         # Clean the consolidated DataFrame
         consolidated_df = clean_data(consolidated_df)
         # Save the consolidated DataFrame to an Excel file
@@ -149,35 +153,89 @@ def date_to_periodo(date_series: pd.Series) -> pd.Series:
 
 def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Merge two DataFrames on the student ID column using the largest PERIODO per student.
-    If a student has multiple PERIODO values (e.g. 202210 and 202220), the maximum (202220) is kept.
+    Merge two DataFrames on the student ID column.
+    1. Gets largest PERIODO (Cohorte Real) per student from admitidos.
+    2. Gets list of all programs per student from admitidos.
+    3. Merges both into base_df.
     :param base_df: Base DataFrame.
     :param admitidos_df: Admitidos DataFrame.
     :return: Merged DataFrame.
     """
-    # Select relevant columns and coerce PERIODO to numeric (invalid -> NaN)
-    adm = admitidos_df[['CODIGO', 'PERIODO']].copy()
-    adm['PERIODO'] = pd.to_numeric(adm['PERIODO'], errors='coerce').astype('Int64')
 
-    # Drop rows without CODIGO or PERIODO
-    adm = adm.dropna(subset=['CODIGO', 'PERIODO'])
+    # --- Ensure merge keys are consistent string types ---
+    base_df['Código del estudiante'] = base_df['Código del estudiante'].astype(str).str.strip()
+    admitidos_df['CODIGO'] = admitidos_df['CODIGO'].astype(str).str.strip()
 
-    # For each student, keep only the largest PERIODO
-    adm_agg = adm.groupby('CODIGO', as_index=False)['PERIODO'].max()
-    adm_agg = adm_agg.rename(columns={'PERIODO': 'Cohorte Real'})
+    # --- 1. Get Cohorte Real (largest PERIODO) ---
+    adm_cohorte = admitidos_df[['CODIGO', 'PERIODO']].copy()
+    adm_cohorte['PERIODO'] = pd.to_numeric(adm_cohorte['PERIODO'], errors='coerce').astype('Int64')
+    adm_cohorte = adm_cohorte.dropna(subset=['CODIGO', 'PERIODO'])
+    adm_agg_cohorte = adm_cohorte.groupby('CODIGO', as_index=False)['PERIODO'].max()
+    adm_agg_cohorte = adm_agg_cohorte.rename(columns={'PERIODO': 'Cohorte Real'})
+    adm_agg_cohorte['Cohorte Real'] = adm_agg_cohorte['Cohorte Real'].astype('int64')
 
-    # Ensure Cohorte Real is int64 for consistency
-    adm_agg['Cohorte Real'] = adm_agg['Cohorte Real'].astype('int64')
+    # --- 2. Get Student-Program Map ---
+    log.info('Creating student-program map...')
+    program_mapping = {
+        'E-AFIN': 'AFIN',
+        'E-IMER': 'IMER',
+        'M-MERC': 'MM',
+        'M-FINZ': 'MF',
+        'M-GAMB': 'MGA',
+        'M-MGPD': 'MDP',
+        'M-GSUM': 'MSCM',
+        'M-MBAV': 'MBAOnline',
+        'M-MBAE': 'EMBA',
+        'M-MMBA': 'MBATP',
+        'M-GEST': 'MGEST',
+        'M-EMBA': 'EMBA',
+        'M-MATP': 'MBATP'
+    }
+
+    student_map_df = admitidos_df[['CODIGO', 'PROGRAMA']].copy()
+    student_map_df['programa_mapped'] = student_map_df['PROGRAMA'].map(program_mapping)
+
+    # Log unmapped programs
+    original_programs = set(student_map_df['PROGRAMA'].dropna().unique())
+    unmapped_programs = {p for p in original_programs if p not in program_mapping}
+    if unmapped_programs:
+        log.warning(f"Unmapped programs found in `{paths.ADMITIDOS_FILE}`: {unmapped_programs}.")
+
+    # Aggregate programs per student
+    def aggregate_programs(subdf: pd.DataFrame) -> str:
+        mapped = sorted({p for p in subdf['programa_mapped'].dropna().unique()})
+        if mapped:
+            return ';'.join(mapped)
+        original = sorted({p for p in subdf['PROGRAMA'].dropna().unique()})
+        return ';'.join(original) if original else None
+
+    student_map_agg = student_map_df.groupby('CODIGO', as_index=False).apply(
+        lambda g: pd.Series({'programas del estudiante': aggregate_programs(g)})
+    )
+    student_map_agg = student_map_agg.dropna(subset=['programas del estudiante'])
+
+    # --- 3. Merge all data ---
 
     # Merge with base; left join preserves all base records
     df = base_df.merge(
-        adm_agg,
+        adm_agg_cohorte,
         left_on='Código del estudiante',
         right_on='CODIGO',
         how='left'
     ).drop(columns=['CODIGO'])
 
-    log.info('Merging completed successfully using the largest PERIODO per student.')
+    # Merge the program map
+    df = df.merge(
+        student_map_agg,
+        left_on='Código del estudiante',
+        right_on='CODIGO',
+        how='left'
+    ).drop(columns=['CODIGO'])
+
+    # Fill students not in admitidos.xlsx with "N/A"
+    df['programas del estudiante'] = df['programas del estudiante'].fillna("N/A")
+
+    log.info('Merging completed successfully with Cohorte Real and Program Map.')
     return df
 
 
@@ -269,79 +327,6 @@ def remove_redundant_criteria(sr: pd.Series) -> pd.Series:
     if len(sr) > 1:
         sr = sr.apply(lambda x: x[0].strip())
     return sr
-
-
-def create_student_program_map(admitidos_df: pd.DataFrame) -> None:
-    """
-    Creates and saves a map of student codes to their admitted program(s).
-    If a student has multiple programs, they will be joined by a semicolon.
-    :param admitidos_df: The DataFrame loaded from `admitidos.xlsx`.
-    :return: None
-    """
-    try:
-        log.info('Creating student-program map...')
-
-        # Define the program mapping based on the provided table
-        # 'Código de programas según Banner' -> 'Otras siglas utilizadas'
-        program_mapping = {
-            'E-AFIN': 'AFIN',
-            'E-IMER': 'IMER',
-            'M-MERC': 'MMER',  # Using MMER as it appears in base.xlsx
-            'M-FINZ': 'MFIN',  # Using MFIN as it is more specific
-            'M-GAMB': 'MGA',
-            'M-MGPD': 'MDP',
-            'M-GSUM': 'MSCM',
-            'M-MBAV': 'MBAOnline',
-            'M-MBAE': 'EMBA',
-            'M-MMBA': 'MBATP',  # This matches 'MBATP' in base.xlsx
-            'M-GEST': 'MGEST'
-        }
-
-        # Select and rename columns
-        student_map_df = admitidos_df[['CODIGO', 'PROGRAMA']].copy()
-        student_map_df.columns = ['código del estudiante', 'programa_original']
-
-        # Ensure student codes are strings to match `base.xlsx`
-        student_map_df['código del estudiante'] = student_map_df['código del estudiante'].astype(str)
-
-        # Map programs (may produce NaN for unmapped programs)
-        student_map_df['programa_mapped'] = student_map_df['programa_original'].map(program_mapping)
-
-        # Log any programs that were not in the mapping
-        original_programs = set(student_map_df['programa_original'].dropna().unique())
-        unmapped_programs = {p for p in original_programs if p not in program_mapping}
-        if unmapped_programs:
-            log.warning(f"Unmapped programs found in `{paths.ADMITIDOS_FILE}`: {unmapped_programs}. "
-                        f"These will be used as fallback when no mapped program exists.")
-
-        # Aggregate programs per student:
-        # - Prefer mapped program names when available
-        # - If a student has multiple mapped programs, join unique values with ';'
-        # - If no mapped programs exist for a student, fall back to original program codes (joined)
-        def aggregate_programs(subdf: pd.DataFrame) -> str:
-            mapped = sorted({p for p in subdf['programa_mapped'].dropna().unique()})
-            if mapped:
-                return ';'.join(mapped)
-            original = sorted({p for p in subdf['programa_original'].dropna().unique()})
-            return ';'.join(original) if original else None
-
-        student_map_agg = student_map_df.groupby('código del estudiante', as_index=False).apply(
-            lambda g: pd.Series({'programa': aggregate_programs(g)})
-        )
-
-        # Remove rows without any program
-        student_map_agg = student_map_agg.dropna(subset=['programa'])
-
-        # Define the output path
-        output_path = paths.STUDENT_MAP_FILE
-
-        # Save the map to the processed folder
-        student_map_agg.to_csv(output_path, index=False)
-        log.info(f'Student-program map saved to {output_path}')
-
-    except Exception as e:
-        log.error(f'Error creating student-program map: {e}')
-
 
 # ================================================ ENTRY POINT ========================================================
 

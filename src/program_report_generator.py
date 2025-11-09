@@ -33,7 +33,8 @@ except ImportError:
         'ADMITIDOS_FILE': '../data/raw/admitidos.xlsx',
         'PROCESSED_DIR': '../data/procesada/',
         'CONSOLIDATED_FILE': '../data/procesada/base_consolidada.xlsx',
-        'STUDENT_MAP_FILE': '../data/procesada/student_program_map.csv'
+        # STUDENT_MAP_FILE is no longer needed
+        # 'STUDENT_MAP_FILE': '../data/procesada/student_program_map.csv'
     })()
 
 # ================================================ CONSTANTS ==========================================================
@@ -52,15 +53,15 @@ def generate_tables_graphs() -> bool:
         # Load consolidated file
         consolidated_df = load_file()
 
-        # Load the student-program map ONCE
-        try:
-            map_path = paths.STUDENT_MAP_FILE
-            student_map_df = pd.read_csv(map_path)
-            log.info(f"Successfully loaded student-program map from {map_path}")
-        except FileNotFoundError:
-            log.error(f"FATAL: Student map file not found: {map_path}.")
-            log.error("Please run 'file_merger.py' first to generate the map.")
-            return False  # Stop execution if map is missing
+        # Load the student-program map ONCE (REMOVED)
+        # try:
+        #     map_path = paths.STUDENT_MAP_FILE
+        #     student_map_df = pd.read_csv(map_path)
+        #     log.info(f"Successfully loaded student-program map from {map_path}")
+        # except FileNotFoundError:
+        #     log.error(f"FATAL: Student map file not found: {map_path}.")
+        #     log.error("Please run 'file_merger.py' first to generate the map.")
+        #     return False  # Stop execution if map is missing
 
         # Get unique programs
         programs = get_programs(consolidated_df)
@@ -72,8 +73,8 @@ def generate_tables_graphs() -> bool:
             # Filter data for the program (convert to DataFrame for consistency)
             pdf = pd.DataFrame(consolidated_df[consolidated_df['programa'] == program])
 
-            # Validate students against the student-program map
-            pdf = check_students(pdf, student_map_df, program)
+            # Validate students against the new 'programas del estudiante' column
+            pdf = check_students(pdf, program)
 
             # If all students were filtered out, skip this program
             if pdf.empty:
@@ -129,14 +130,14 @@ def create_report_folder(program: str) -> str:
     return folder
 
 
-def check_students(pdf: pd.DataFrame, student_map: pd.DataFrame, target_program: str) -> pd.DataFrame:
+def check_students(pdf: pd.DataFrame, target_program: str) -> pd.DataFrame:
     """
     Filters the program DataFrame to include only students who are
-    officially admitted to that program, using the pre-loaded student map.
-    Students not present in the student map are treated as valid members
-    of the program (i.e. they are kept).
-    :param pdf: The DataFrame for a single program.
-    :param student_map: The DataFrame from 'student_program_map.csv'.
+    officially admitted to that program, using the 'programas del estudiante'
+    column (from base_consolidada).
+    Students whose 'programas del estudiante' column is 'N/A' (i.e., not
+    in admitidos.xlsx) are treated as valid members of the program.
+    :param pdf: The DataFrame for a single program (already filtered by 'programa').
     :param target_program: The program to filter for.
     :return: A filtered DataFrame.
     """
@@ -145,74 +146,59 @@ def check_students(pdf: pd.DataFrame, student_map: pd.DataFrame, target_program:
         return pdf
 
     try:
-        # If map is missing or empty, treat all students as valid
-        if student_map is None or student_map.empty:
-            log.info("Student map empty or missing: treating all students as valid for the program.")
-            return pdf
+        # Find the new program map column
+        map_col = None
+        for c in pdf.columns:
+            if str(c).lower() == 'programas del estudiante':
+                map_col = c
+                break
 
-        # Find code and program columns in the map (be permissive with names)
-        code_col = None
-        program_col = None
-        for c in student_map.columns:
-            cl = str(c).lower()
-            if code_col is None and ('código' in cl or 'codigo' in cl or 'codig' in cl):
-                code_col = c
-            if program_col is None and 'programa' in cl:
-                program_col = c
-        if code_col is None or program_col is None:
-            log.error(f"Student map missing expected columns. Found: {list(student_map.columns)}")
-            return pdf
+        if map_col is None:
+            log.error(f"FATAL: Column 'programas del estudiante' not found in {paths.CONSOLIDATED_FILE}.")
+            log.error("Please re-run 'file_merger.py' to generate this column.")
+            # Return an empty DataFrame to stop processing this program
+            return pd.DataFrame()
 
-        # Work on a clean copy and normalize
-        sm = student_map[[code_col, program_col]].copy()
-        sm[code_col] = sm[code_col].astype(str).str.strip()
-        sm[program_col] = sm[program_col].astype(str).fillna('').str.strip()
-
-        # Expand semicolon-separated program lists so each row has one program
-        sm_exp = sm.assign(_prog_split=sm[program_col].str.split(';'))
-        sm_exp = sm_exp.explode('_prog_split')
-        sm_exp['_prog_split'] = sm_exp['_prog_split'].astype(str).str.strip().str.lower()
-
+            # Normalize target program for comparison
         target_norm = str(target_program).strip().lower()
 
-        # Codes that have at least one non-empty program entry are considered 'mapped'
-        mapped_codes = set(sm_exp.loc[sm_exp['_prog_split'] != '', code_col].astype(str))
+        # --- Start of new logic ---
 
-        # Valid students: those whose expanded program equals the target program (case-insensitive)
-        valid_codes = set(sm_exp.loc[sm_exp['_prog_split'] == target_norm, code_col].astype(str))
+        # 1. Handle 'N/A' (unmapped students) - keep them
+        # These are students from base.xlsx not found in admitidos.xlsx
+        is_unmapped = (pdf[map_col] == "N/A")
 
-        # Prepare pdf for comparison
-        pdf_clean = pdf.copy()
-        pdf_code_col = None
-        for c in pdf_clean.columns:
-            cl = str(c).lower()
-            if 'código' in cl or 'codigo' in cl or cl == 'codigo' or 'codig' in cl:
-                pdf_code_col = c
-                break
-        if pdf_code_col is None:
-            log.error(f"PDF missing student code column. Columns: {list(pdf_clean.columns)}")
-            return pdf
-        pdf_clean[pdf_code_col] = pdf_clean[pdf_code_col].astype(str).str.strip()
+        # 2. Handle mapped students
+        # Check if target_norm is in the semicolon-separated list.
+        def check_program_list(program_list_str):
+            if pd.isna(program_list_str) or program_list_str == "N/A":
+                return False  # Handled by is_unmapped
 
-        original_count = len(pdf_clean)
+            # Split, lower, and strip whitespace from each program
+            programs = str(program_list_str).lower().split(';')
+            programs_cleaned = {p.strip() for p in programs}
 
-        # Keep rows where student is either officially valid for this program,
-        # or the student's code is not present in the student map at all (unmapped).
-        mask = pdf_clean[pdf_code_col].isin(valid_codes) | (~pdf_clean[pdf_code_col].isin(mapped_codes))
-        valid_pdf = pdf_clean[mask].copy()
+            return target_norm in programs_cleaned
+
+        is_validly_mapped = pdf[map_col].apply(check_program_list)
+
+        # Keep rows that are either unmapped OR validly mapped
+        mask = is_unmapped | is_validly_mapped
+        valid_pdf = pdf[mask].copy()
+
+        # --- End of new logic ---
+
+        original_count = len(pdf)
         final_count = len(valid_pdf)
-
-        # Logging details
-        kept_by_map = int(pdf_clean[pdf_code_col].isin(valid_codes).sum())
-        kept_unmapped = int((~pdf_clean[pdf_code_col].isin(mapped_codes)).sum())
         dropped_count = original_count - final_count
 
         log.info(f"Program '{target_program}': {final_count} records kept "
-                 f"({kept_by_map} mapped to program, {kept_unmapped} not found in student map and treated as valid).")
+                 f"({is_validly_mapped.sum()} mapped to program, {is_unmapped.sum()} unmapped and kept by default).")
 
         if dropped_count > 0:
             log.warning(
-                f"Program '{target_program}': Removed {dropped_count} records for students mapped to a different program.")
+                f"Program '{target_program}': Removed {dropped_count} records for students "
+                f"whose 'programas del estudiante' column did not contain '{target_program}'.")
 
         return valid_pdf
 
