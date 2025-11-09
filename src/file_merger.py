@@ -195,7 +195,7 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df['cohorte real'].notnull() & df['puntaje criterio'].notnull()]
 
     # Remove codes from objetivo de aprendizaje and código y nombre del criterio
-    df['periodo'] = df['semestre o ciclo'].apply(to_str_period).apply(last_digit_to_zero).astype("int64")
+    df['periodo'] = df['semestre o ciclo'].apply(to_str_period).astype("int64")
     df = df.drop(columns=['semestre o ciclo'])
     df['objetivo de aprendizaje'] = remove_codes(df['objetivo de aprendizaje'])
     df['código y nombre del criterio'] = remove_codes(df['código y nombre del criterio'])
@@ -265,7 +265,7 @@ def remove_redundant_criteria(sr: pd.Series) -> pd.Series:
     :param sr: Series to process.
     :return: Series with redundant information removed.
     """
-    sr = sr.str.split('.').split(',')
+    sr = sr.str.split('.')
     if len(sr) > 1:
         sr = sr.apply(lambda x: x[0].strip())
     return sr

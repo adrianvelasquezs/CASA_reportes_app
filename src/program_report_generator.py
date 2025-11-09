@@ -552,7 +552,7 @@ def table_6(df: pd.DataFrame, folder_path: str, program: str):
         value_col = prom_col if prom_col is not None else score_col
 
         # --- INICIO DE FILTRO DE ESCRITURA ---
-        text_cols_to_check = [c for c in [obj_col, crit_col, comp_col] if c is not None]
+        text_cols_to_check = [c for c in [obj_col] if c is not None]
 
         if not text_cols_to_check:
             log.warning(f"Table 6: No text columns (objetivo, criterio, competencia) found to filter for 'escritura'.")
