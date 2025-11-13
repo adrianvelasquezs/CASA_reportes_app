@@ -168,6 +168,9 @@ def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.Da
 
     # --- 1. Get Cohorte Real (largest PERIODO) ---
     adm_cohorte = admitidos_df[['CODIGO', 'PERIODO']].copy()
+    adm_cohorte = admitidos_df[['CODIGO', 'PERIODO']].copy()
+    # Remove any non-digit characters (including '-') and coerce empty strings to NaN
+    adm_cohorte['PERIODO'] = adm_cohorte['PERIODO'].astype(str).str.replace(r'\D', '', regex=True)
     adm_cohorte['PERIODO'] = pd.to_numeric(adm_cohorte['PERIODO'], errors='coerce').astype('Int64')
     adm_cohorte = adm_cohorte.dropna(subset=['CODIGO', 'PERIODO'])
     adm_agg_cohorte = adm_cohorte.groupby('CODIGO', as_index=False)['PERIODO'].max()

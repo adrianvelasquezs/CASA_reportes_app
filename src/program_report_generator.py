@@ -767,45 +767,62 @@ def generate_graphs(pdf: pd.DataFrame, folder_path: str, program: str):
 
 
 def graph_1(df: pd.DataFrame, folder_path: str, program: str):
-    """
-    Generate Graph 1: Number of evaluations per period (unique students).
-    :param df: DataFrame filtered by program.
-    :param folder_path: Path to save the graphs.
-    :param program: The program name.
-    :return: None
-    """
-    # localizar columnas
-    cols = df.columns
-    per_col = next((c for c in cols if
-                    c.strip().lower().startswith('semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith(
-                        'periodo')), None)
-    student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
-    if per_col is None or student_col is None:
-        # Fallback simple
-        fig, ax = plt.subplots(figsize=(8, 6))
-        ax.text(0.5, 0.5, 'No hay columnas de periodo/estudiante', ha='center', va='center')
-        ax.axis('off')
-    else:
-        # Contar estudiantes únicos por periodo
-        counts = df.groupby(per_col)[student_col].nunique().sort_index()
+        """
+        Generate Graph 1: Number of evaluations per period (unique students).
+        :param df: DataFrame filtered by program.
+        :param folder_path: Path to save the graphs.
+        :param program: The program name.
+        :return: None
+        """
+        # localizar columnas
+        cols = df.columns
+        per_col = next((c for c in cols if
+                        c.strip().lower().startswith('semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith(
+                            'periodo')), None)
+        student_col = next((c for c in cols if 'código del estudiante' in c.lower() or c.lower() == 'codigo'), None)
+        if per_col is None or student_col is None:
+            # Fallback simple
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(0.5, 0.5, 'No hay columnas de periodo/estudiante', ha='center', va='center')
+            ax.axis('off')
+        else:
+            # Contar estudiantes únicos por periodo
+            counts = df.groupby(per_col)[student_col].nunique().sort_index()
 
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.bar(range(len(counts)), counts.values)
-        ax.set_xticks(range(len(counts)))
-        ax.set_xticklabels(counts.index.astype(str))
-        ax.set_title('Número de estudiantes únicos evaluados por periodo')
-        ax.set_xlabel('Periodo - semestre')
-        ax.set_ylabel('Número de estudiantes únicos evaluados')
-        # Etiquetas encima
-        for rect, val in zip(bars, counts.values):
-            ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() + 0.5, f"{int(val)}", ha='center',
-                    va='bottom')
-        ax.margins(y=0.1)
-        fig.tight_layout()
-    out_path = os.path.join(folder_path, f'{program}_figura_1.png')
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    log.info(f'Graph 1 (unique students) generated for program: {program}')
+            fig, ax = plt.subplots(figsize=(10, 6))
+            bars = ax.bar(range(len(counts)), counts.values)
+            ax.set_xticks(range(len(counts)))
+            ax.set_xticklabels(counts.index.astype(str))
+            ax.set_title('Número de estudiantes únicos evaluados por periodo')
+            ax.set_xlabel('Periodo - semestre')
+            ax.set_ylabel('Número de estudiantes únicos evaluados')
+            # Etiquetas encima
+            for rect, val in zip(bars, counts.values):
+                ax.text(rect.get_x() + rect.get_width() / 2, rect.get_height() + 0.5, f"{int(val)}", ha='center',
+                        va='bottom')
+
+            # Rotate x-axis labels so they are sloped or vertical depending on count
+            n_labels = len(counts)
+            if n_labels > 20:
+                rotation = 90
+                ha = 'right'
+            elif n_labels > 8:
+                rotation = 45
+                ha = 'right'
+            else:
+                rotation = 0
+                ha = 'center'
+
+            for lbl in ax.get_xticklabels():
+                lbl.set_rotation(rotation)
+                lbl.set_ha(ha)
+
+            ax.margins(y=0.1)
+            fig.tight_layout()
+        out_path = os.path.join(folder_path, f'{program}_figura_1.png')
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        log.info(f'Graph 1 (unique students) generated for program: {program}')
 
 
 def graph_2(df: pd.DataFrame, folder_path: str, program: str):
