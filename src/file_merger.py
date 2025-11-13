@@ -184,7 +184,7 @@ def merge_dataframes(base_df: pd.DataFrame, admitidos_df: pd.DataFrame) -> pd.Da
         'M-GAMB': 'MGA',
         'M-MGPD': 'MDP',
         'M-GSUM': 'MSCM',
-        'M-MBAV': 'MBAOnline',
+        'M-MBAV': 'MBAV',
         'M-MBAE': 'EMBA',
         'M-MMBA': 'MBATP',
         'M-GEST': 'MGEST',
