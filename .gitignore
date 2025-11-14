@@ -3,7 +3,6 @@
 .vscode/
 *.xlsx
 *.csv
-*.pdf
 *.png
 *.jpg
 *.jpeg
