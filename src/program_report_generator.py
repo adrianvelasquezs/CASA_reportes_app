@@ -278,13 +278,17 @@ def table_2(df: pd.DataFrame, folder_path: str, program: str):
     :return: None
     """
     try:
+        try :
+            df['curso'] = df['código del curso y sección'].str.split('_').str[1]
+        except Exception as e:
+            print("No se pudo simplificar la columna 'curso':", e)
+            df['curso'] = df['código del curso y sección']
+            pass
         cols = df.columns
         per_col = next((c for c in cols if c.strip().lower().startswith(
             'semestre') or 'semestre o ciclo' in c.lower() or c.lower().startswith('periodo')), None)
         obj_col = next((c for c in cols if 'objetivo de aprendizaje' in c.lower()), None)
-        course_col = next(
-            (c for c in cols if 'nombre del curso' in c.lower() or 'nombre curso' in c.lower() or 'curso' in c.lower()),
-            None)
+        course_col = 'curso'
 
         # Require period, objective and course name to perform the unique-course count
         if per_col is None or obj_col is None or course_col is None:
